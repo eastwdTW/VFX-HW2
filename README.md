@@ -26,9 +26,9 @@ cd code
 python main.py
 ```
 
-* Change dataset
+* Change dataset and show feature points, matches
 ```
-python main.py -s {0,1}
+python main.py -s {0, 1, 2} -r {False, True}
 ```
 
 * For more advanced usage
