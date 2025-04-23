@@ -29,63 +29,83 @@ def solve_homography(u, v):
 
     return H
 
-def rectangling(img, corners, n, oh, ow):
+def rectangling(img, corners, n, oh, ow, mode):
 
     h, w, c = img.shape
-    th = oh*3
-    tw = ow*(n+1)
-    tcorners = [(0, 0), (th-1, 0), (0, tw-1), (th-1, tw-1)]
-    u = np.ones((4, 3))
-    v = np.ones((4, 3))
-    for i in range(4):
-        u[i, 0] = corners[i][0]
-        u[i, 1] = corners[i][1]
-        v[i, 0] = tcorners[i][0]
-        v[i, 1] = tcorners[i][1]
+    result = None
+    cropped_result = None
+    if mode == 0:
+        th = oh*2
+        tw = ow*(n+1)//2
+        tcorners = [(0, 0), (th-1, 0), (0, tw-1), (th-1, tw-1)]
+        u = np.ones((4, 3))
+        v = np.ones((4, 3))
+        for i in range(4):
+            u[i, 0] = corners[i][0]
+            u[i, 1] = corners[i][1]
+            v[i, 0] = tcorners[i][0]
+            v[i, 1] = tcorners[i][1]
 
-    H = solve_homography(u, v)
-    result = np.zeros((th, tw, 3))
-    yy, xx = np.meshgrid(np.arange(0, tw), np.arange(0, th))
-    N = xx.shape[0] * xx.shape[1]
-    U = np.array([xx.flatten(), yy.flatten(), np.ones(N)])
-    origin = np.matmul(np.linalg.inv(H), U)
-    originX = (origin[0] / origin[2]).reshape(xx.shape)
-    originY = (origin[1] / origin[2]).reshape(yy.shape)
+        H = solve_homography(u, v)
+        result = np.zeros((th, tw, 3))
+        yy, xx = np.meshgrid(np.arange(0, tw), np.arange(0, th))
+        N = xx.shape[0] * xx.shape[1]
+        U = np.array([xx.flatten(), yy.flatten(), np.ones(N)])
+        origin = np.matmul(np.linalg.inv(H), U)
+        originX = (origin[0] / origin[2]).reshape(xx.shape)
+        originY = (origin[1] / origin[2]).reshape(yy.shape)
 
-    baseX = np.floor(originX).astype(np.int32)
-    baseY = np.floor(originY).astype(np.int32)
-    rx = originX-baseX
-    ry = originY-baseY
-    rx = np.repeat(np.expand_dims(rx, axis = -1), 3, axis = -1)
-    ry = np.repeat(np.expand_dims(ry, axis = -1), 3, axis = -1)
+        baseX = np.floor(originX).astype(np.int32)
+        baseY = np.floor(originY).astype(np.int32)
+        rx = originX-baseX
+        ry = originY-baseY
+        rx = np.repeat(np.expand_dims(rx, axis = -1), 3, axis = -1)
+        ry = np.repeat(np.expand_dims(ry, axis = -1), 3, axis = -1)
 
-    xmask = np.logical_and(baseX >= 0, baseX < h-1)
-    ymask = np.logical_and(baseY >= 0, baseY < w-1)
-    mask = np.logical_and(xmask, ymask)
+        xmask = np.logical_and(baseX >= 0, baseX < h-1)
+        ymask = np.logical_and(baseY >= 0, baseY < w-1)
+        mask = np.logical_and(xmask, ymask)
 
-    patch = (1-rx)*(1-ry)*img[(baseX*mask, baseY*mask)] + \
-            (1-rx)*ry*img[(baseX*mask, (baseY+1)*mask)] + \
-            (1-ry)*rx*img[((baseX+1)*mask, baseY*mask)] + \
-            rx*ry*img[((baseX+1)*mask, (baseY+1)*mask)]
+        patch = (1-rx)*(1-ry)*img[(baseX*mask, baseY*mask)] + \
+                (1-rx)*ry*img[(baseX*mask, (baseY+1)*mask)] + \
+                (1-ry)*rx*img[((baseX+1)*mask, baseY*mask)] + \
+                rx*ry*img[((baseX+1)*mask, (baseY+1)*mask)]
 
-    result[0:th, 0:tw][mask] = patch[mask]
+        result[0:th, 0:tw][mask] = patch[mask]
 
-    low_h = 0
-    high_h = 0
-    for i in range(th):
-        if np.sum(result[i, :, :] == [0, 0, 0]) == 0:
-            low_h = i
-            break
-    for i in range(th):
-        if np.sum(result[th-1-i, :, :] == [0, 0, 0]) == 0:
-            high_h = th-1-i
-            break
-    cropped_result = result[low_h:high_h+1, :]
+        low_h = 0
+        high_h = 0
+        for i in range(th):
+            if np.sum(result[i, :, :] == [0, 0, 0]) == 0:
+                low_h = i
+                break
+        for i in range(th):
+            if np.sum(result[th-1-i, :, :] == [0, 0, 0]) == 0:
+                high_h = th-1-i
+                break
+        cropped_result = result[low_h:high_h+1, :]
+    else:
+        result = img
+        low_w = max(corners[0][1], corners[1][1])
+        high_w = min(corners[2][1], corners[3][1])
+        cropped_result = result[:, low_w:high_w+1]
+        low_h = 0
+        high_h = 0
+        for i in range(h):
+            if np.sum(cropped_result[i, :, :] == [0, 0, 0]) == 0:
+                low_h = i
+                break
+        for i in range(h):
+            if np.sum(cropped_result[h-1-i, :, :] == [0, 0, 0]) == 0:
+                high_h = h-1-i
+                break
+        cropped_result = cropped_result[low_h:high_h+1, :]
+        print(low_w, high_w, low_h, high_h)
 
     return result, cropped_result
 
 # feature detection
-def HarrisCorner(img):
+def HarrisCorner(img, samples):
     h, w, c = img.shape
     Gimg = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     Hx = np.array([[0, 0, 0], [1, 0, -1], [0, 0, 0]])
@@ -123,7 +143,7 @@ def HarrisCorner(img):
         return e[2]
 
     candidates.sort(reverse=True, key=sortkey)
-    candidates = candidates[:200]
+    candidates = candidates[:samples]
 
     feature_points = []
     descriptors = []
@@ -185,13 +205,13 @@ def gen_descriptor(fpx, fpy, m, theta):
     return descriptors
 
 # feature matching
-def MatchFeature(fp1, des1, fp2, des2, width):
+def MatchFeature(fp1, des1, fp2, des2, width, overlap):
     n1, _ = fp1.shape
     n2, _ = fp2.shape
     matches = []
 
     for i in range(n1):
-        if fp1[i][1] < width/2:
+        if fp1[i][1] < width*(1-overlap):
             continue
         dist0 = np.linalg.norm(des1[i]-des2[0])
         dist1 = np.linalg.norm(des1[i]-des2[1])
@@ -254,12 +274,12 @@ def Ransac(matches, seed):
     return best_H
 
 # blending
-def BlendR(img1, img2, H, offset_h, offset_w):
-
+def Blend(img1, img2, H, offset_h, offset_w):
+    
     h1, w1, _ = img1.shape
     h2, w2, _ = img2.shape
     H_inv = np.linalg.inv(H)
-
+    
     corners = np.array([[0, 0, h2-1, h2-1], [0, w2-1, 0, w2-1], [1, 1, 1, 1]])
     corners = np.matmul(H, corners)
     corners = corners / corners[-1]
@@ -268,18 +288,18 @@ def BlendR(img1, img2, H, offset_h, offset_w):
     minW = np.ceil(np.min(corners[1])).astype(np.int32)+offset_w
     maxW = np.floor(np.max(corners[1])).astype(np.int32)+offset_w
 
-    sh = max(h1, maxH)
-    sw = max(w1, maxW)
-    offset_now = 0
-    if minH < 0:
-        sh -= minH
-        offset_h -= minH
-        offset_now = -minH
+    sh = max(h1, maxH) - min(0, minH)
+    sw = max(w1, maxW) - min(0, minW)
+
+    offset_now_h = -min(0, minH)
+    offset_now_w = -min(0, minW)
+    offset_h += offset_now_h
+    offset_w += offset_now_w
 
     result = np.zeros((sh, sw, 3))
-    result[offset_now:h1+offset_now, :w1] = img1
+    result[offset_now_h:h1+offset_now_h, offset_now_w:w1+offset_now_w] = img1
 
-    yy, xx = np.meshgrid(np.arange(minW, maxW), np.arange(minH+offset_now, maxH+offset_now))
+    yy, xx = np.meshgrid(np.arange(minW+offset_now_w, maxW+offset_now_w), np.arange(minH+offset_now_h, maxH+offset_now_h))
     N = xx.shape[0] * xx.shape[1]
     xx = xx - offset_h
     yy = yy - offset_w
@@ -305,85 +325,30 @@ def BlendR(img1, img2, H, offset_h, offset_w):
             (1-ry)*rx*img2[((baseX+1)*mask, baseY*mask)] + \
             rx*ry*img2[((baseX+1)*mask, (baseY+1)*mask)]
 
-    ratio1 = w1 - yy
-    ratio1[ratio1 < 0] = 0
-    zero = np.logical_and(result[minH+offset_now:maxH+offset_now, minW:maxW, 0] == 0, result[minH+offset_now:maxH+offset_now, minW:maxW, 1] == 0)
-    zero = np.logical_and(zero, result[minH+offset_now:maxH+offset_now, minW:maxW, 2] == 0)
-    ratio1[zero] = 0
-    ratio2 = originY
-    ratiop = ratio2/(ratio1+ratio2)
+    d1 = xx-offset_now_h+offset_h
+    d2 = h1+offset_now_h-xx-offset_h
+    d3 = yy-offset_now_w+offset_w
+    d4 = w1+offset_now_w-yy-offset_w
+    target = result[minH+offset_now_h:maxH+offset_now_h, minW+offset_now_w:maxW+offset_now_w, :]
+    r1mask = (np.max((target == np.zeros(target.shape)), axis=-1) == 1)
+    d1[r1mask] = 0
+    d2[r1mask] = 0
+    d3[r1mask] = 0
+    d4[r1mask] = 0
+    ratio1 = np.zeros_like(xx)
+    ratio1 = np.sqrt(np.min([d1, d2], axis=0)**2 + np.min([d3, d4], axis=0)**2)
+    d1 = originX
+    d2 = h2-originX
+    d3 = originY
+    d4 = w2-originY
+    ratio2 = np.sqrt(np.min([d1, d2], axis=0)**2 + np.min([d3, d4], axis=0)**2)
+
     ratior = ratio1/(ratio1+ratio2)
-    ratiop = np.repeat(np.expand_dims(ratiop, axis = -1), 3, axis = -1)
+    ratiop = ratio2/(ratio1+ratio2)
     ratior = np.repeat(np.expand_dims(ratior, axis = -1), 3, axis = -1)
-
-    result[minH+offset_now:maxH+offset_now, minW:maxW][mask] = patch[mask]*ratiop[mask] + result[minH+offset_now:maxH+offset_now, minW:maxW][mask]*ratior[mask]
-
-    return result, offset_h
-
-def BlendL(img1, img2, H, offset_h, offset_w):
+    ratiop = np.repeat(np.expand_dims(ratiop, axis = -1), 3, axis = -1)
     
-    h1, w1, _ = img1.shape
-    h2, w2, _ = img2.shape
-    H_inv = np.linalg.inv(H)
-
-    corners = np.array([[0, 0, h2-1, h2-1], [0, w2-1, 0, w2-1], [1, 1, 1, 1]])
-    corners = np.matmul(H_inv, corners)
-    corners = corners / corners[-1]
-    minH = np.ceil(np.min(corners[0])).astype(np.int32)+offset_h
-    maxH = np.floor(np.max(corners[0])).astype(np.int32)+offset_h
-    minW = np.ceil(np.min(corners[1])).astype(np.int32)+offset_w
-    maxW = np.floor(np.max(corners[1])).astype(np.int32)+offset_w
-
-    sh = max(h1, maxH)
-    sw = w1-minW
-
-    offset_w -= minW
-    offset_now = 0
-    if minH < 0:
-        sh -= minH
-        offset_h -= minH
-        offset_now = -minH
-
-    result = np.zeros((sh, sw, 3))
-    result[offset_now:h1+offset_now, -minW:w1-minW] = img1
-
-    yy, xx = np.meshgrid(np.arange(0, maxW-minW), np.arange(minH+offset_now, maxH+offset_now))
-    N = xx.shape[0] * xx.shape[1]
-    xx = xx - offset_h
-    yy = yy - offset_w
-    U = np.array([xx.flatten(), yy.flatten(), np.ones(N)])
-
-    origin = np.matmul(H, U)
-    originX = (origin[0] / origin[2]).reshape(xx.shape)
-    originY = (origin[1] / origin[2]).reshape(yy.shape)
-
-    baseX = np.floor(originX).astype(np.int32)
-    baseY = np.floor(originY).astype(np.int32)
-    rx = originX-baseX
-    ry = originY-baseY
-    rx = np.repeat(np.expand_dims(rx, axis = -1), 3, axis = -1)
-    ry = np.repeat(np.expand_dims(ry, axis = -1), 3, axis = -1)
-
-    xmask = np.logical_and(baseX >= 0, baseX < h2-1)
-    ymask = np.logical_and(baseY >= 0, baseY < w2-1)
-    mask = np.logical_and(xmask, ymask)
-
-    patch = (1-rx)*(1-ry)*img2[(baseX*mask, baseY*mask)] + \
-            (1-rx)*ry*img2[(baseX*mask, (baseY+1)*mask)] + \
-            (1-ry)*rx*img2[((baseX+1)*mask, baseY*mask)] + \
-            rx*ry*img2[((baseX+1)*mask, (baseY+1)*mask)]
-
-    ratio1 = yy
-    ratio1[ratio1 < 0] = 0
-    zero = np.logical_and(result[minH+offset_now:maxH+offset_now, 0:maxW-minW, 0] == 0, result[minH+offset_now:maxH+offset_now, 0:maxW-minW, 1] == 0)
-    zero = np.logical_and(zero, result[minH+offset_now:maxH+offset_now, 0:maxW+-minW, 2] == 0)
-    ratio1[zero] = 0
-    ratio2 = w2 - originY
-    ratiop = ratio2/(ratio1+ratio2)
-    ratior = ratio1/(ratio1+ratio2)
-    ratiop = np.repeat(np.expand_dims(ratiop, axis = -1), 3, axis = -1)
-    ratior = np.repeat(np.expand_dims(ratior, axis = -1), 3, axis = -1)
-
-    result[minH+offset_now:maxH+offset_now, 0:maxW-minW][mask] = patch[mask]*ratiop[mask] + result[minH+offset_now:maxH+offset_now, 0:maxW-minW][mask]*ratior[mask]
+    result[minH+offset_now_h:maxH+offset_now_h, minW+offset_now_w:maxW+offset_now_w][mask] = result[minH+offset_now_h:maxH+offset_now_h, minW+offset_now_w:maxW+offset_now_w][mask]*ratior[mask] + patch[mask]*ratiop[mask]
 
     return result, offset_h, offset_w
+
